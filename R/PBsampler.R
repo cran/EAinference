@@ -91,9 +91,12 @@ PBsampler <- function(X, PE_1, sig2_1, lbd_1, PE_2,
   #--------------------
   # Error Handling
   #--------------------
-  if (Btype == "wild") {
-    sig2_1 <- sig2_2 <- 1
-  }
+  # if (Btype == "wild") {
+  #   sig2_1 <- NULL
+  #   if (!missing(lbd_2) && !mising(PE_2)) {
+  #     sig2_2 <- NULL
+  #   }
+  # }
   if (!is.null(Y) & length(Y) != n) {
     stop("dimension of X and Y are not conformable.")
   }
@@ -162,7 +165,7 @@ PBsampler <- function(X, PE_1, sig2_1, lbd_1, PE_2,
       RESULT <- list(beta = rbind(PB1$beta, PB2$beta),
                      subgrad = rbind(PB1$subgrad, PB2$subgrad), hsigma = c(PB1$hsigma, PB2$hsigma), X = X,
                      PE = rbind(PE_1, PE_2),
-                     sig2 = NULL, lbd = c(lbd_1, lbd_2), weights = weights, group = group,
+                     sig2 = c(sig2_1, sig2_2), lbd = c(lbd_1, lbd_2), weights = weights, group = group,
                      type = type, PEtype = PEtype, Btype = Btype, Y = Y, mixture = Mixture)
     }
   } else {
@@ -176,7 +179,7 @@ PBsampler <- function(X, PE_1, sig2_1, lbd_1, PE_2,
                      type = type, PEtype = PEtype, Btype = Btype, Y = Y, mixture = Mixture)
     } else {
       RESULT <- list(beta = PB$beta, subgrad = PB$subgrad, hsigma = PB$hsigma, X = X,
-                     PE = PE_1, sig2 = NULL, lbd = lbd_1, weights = weights, group = group,
+                     PE = PE_1, sig2 = sig2_1, lbd = lbd_1, weights = weights, group = group,
                      type = type, PEtype = PEtype, Btype = Btype, Y = Y, mixture = Mixture)
     }
   }
@@ -217,9 +220,9 @@ PBsamplerMain <- function(X, PE, sig2, lbd, weights,
 
   W <- rep(weights, table(group))
 
-  X.tilde   <- scale(X, FALSE, scale = W)
-  t.X.tilde <- t(X.tilde) # same as  t(X) / W
-  GramMat   <- t(X.tilde) %*% X.tilde
+  Xtilde   <- scale(X, FALSE, scale = W)
+  t.Xtilde <- t(Xtilde) # same as  t(X) / W
+  GramMat   <- t(Xtilde) %*% Xtilde
   Lassobeta <- matrix(0, niter, p)
   Subgrad   <- matrix(0, niter, p)
   Ysample   <- numeric(n)
@@ -233,12 +236,12 @@ PBsamplerMain <- function(X, PE, sig2, lbd, weights,
     res <- res - mean(res) # centering the residuals
   }
 
-  Gamma <- groupMaxEigen(X.tilde, group)
+  GAMMA <- groupMaxEigen(X = Xtilde, group = group)
 
   if (type %in% c("lasso", "grlasso")) {
     FF <- function(x) {
       if (Btype == "wild") {
-        epsilon <- rnorm(n, mean = 0, sd = 1)
+        epsilon <- rnorm(n, mean = 0, sd = sig2^0.5)
         epsilon <- epsilon * res
       } else {
         epsilon <- rnorm(n, mean = 0, sd = sig2^0.5)
@@ -246,48 +249,61 @@ PBsamplerMain <- function(X, PE, sig2, lbd, weights,
       Ysample <- Yexpect + epsilon;
       #if(center){Ysample=Ysample-mean(Ysample);}
 
-      # LassoFit <- gglasso(X.tilde, Ysample, pf = rep(1, max(group)),
+      # LassoFit <- gglasso(Xtilde, Ysample, pf = rep(1, max(group)),
       #                     group = group, loss = "ls", intercept = FALSE, lambda = lbd)
       # Lassobeta <- coef(LassoFit)[-1] / W
-      LassoFit <- grlassoFit(X = X.tilde, Y = Ysample, group = group,
-                             weights = rep(1, max(group)), Gamma=Gamma, lbd = lbd)
+      LassoFit <- grlassoFit(X = Xtilde, Y = Ysample, group = group,
+                             weights = rep(1, max(group)), Gamma = GAMMA, lbd = lbd)
       Lassobeta <- LassoFit$coef / W
-      return(c(Lassobeta, (t.X.tilde %*% Ysample -
+      return(c(Lassobeta, (t.Xtilde %*% Ysample -
                              GramMat %*% (Lassobeta * W)) / n / lbd))
     }
   } else {
     FF <- function(x) {
       if (Btype == "wild") {
-        epsilon <- rnorm(n, mean = 0, sd = 1)
+        epsilon <- rnorm(n, mean = 0, sd = sig2^0.5)
         epsilon <- epsilon * res
       } else {
         epsilon <- rnorm(n, mean = 0, sd = sig2^0.5)
       }
       Ysample <- Yexpect + epsilon;
-      #if(center){Ysample=Ysample-mean(Ysample);}
 
-      sig <- signew <- .5
-      K <- 1 ; niter <- 0
-      while(K == 1 & niter < 1000){
-        sig <- signew;
-        lam <- lbd * sig
-        # B0 <- coef(gglasso(X.tilde,Ysample,loss="ls",group=group,pf=rep(1,max(group)),lambda=lam,intercept = FALSE))[-1]
-        B0 <- grlassoFit(X = X.tilde, Y = Ysample, group = group,
-                         weights = rep(1, max(group)), Gamma=Gamma, lbd = lbd)$coef
-        signew <- sqrt(crossprod(Ysample-X.tilde %*% B0) / n)
-
-        niter <- niter + 1
-        if (abs(signew - sig) < 1e-04) {K <- 0}
-        if (verbose) {
-          cat(niter, "\t", sprintf("%.3f", slassoLoss(X.tilde,Ysample,B0,signew,lbd)),"\t",
-              sprintf("%.3f", signew), "\n")
-        }
-      }
-      hsigma <- c(signew)
-      S0 <- (t.X.tilde %*% (Ysample - X.tilde %*% B0)) / n / lbd / hsigma
-      B0 <- B0 / rep(weights,table(group))
-      return(c(B0, S0, hsigma))
+      Fit <- slassoFit.tilde(Xtilde = Xtilde, Y = Ysample, lbd = lbd, group = group, weights = weights, Gamma = GAMMA, verbose = verbose)
+      return(c(Fit$B0, Fit$S0, Fit$hsigma))
     }
+
+    # FF <- function(x) {
+    #   if (Btype == "wild") {
+    #     epsilon <- rnorm(n, mean = 0, sd = 1)
+    #     epsilon <- epsilon * res
+    #   } else {
+    #     epsilon <- rnorm(n, mean = 0, sd = sig2^0.5)
+    #   }
+    #   Ysample <- Yexpect + epsilon;
+    #   #if(center){Ysample=Ysample-mean(Ysample);}
+    #
+    #   sig <- signew <- .5
+    #   K <- 1 ; niter <- 0
+    #   while(K == 1 & niter < 1000){
+    #     sig <- signew;
+    #     lam <- lbd * sig
+    #     # B0 <- coef(gglasso(Xtilde,Ysample,loss="ls",group=group,pf=rep(1,max(group)),lambda=lam,intercept = FALSE))[-1]
+    #     B0 <- grlassoFit(X = Xtilde, Y = Ysample, group = group,
+    #                      weights = rep(1, max(group)), Gamma = Gamma, lbd = lbd)$coef
+    #     signew <- sqrt(crossprod(Ysample-Xtilde %*% B0) / n)
+    #
+    #     niter <- niter + 1
+    #     if (abs(signew - sig) < 1e-04) {K <- 0}
+    #     if (verbose) {
+    #       cat(niter, "\t", sprintf("%.3f", slassoLoss(Xtilde,Ysample,B0,signew,lbd)),"\t",
+    #           sprintf("%.3f", signew), "\n")
+    #     }
+    #   }
+    #   hsigma <- c(signew)
+    #   S0 <- (t.Xtilde %*% (Ysample - Xtilde %*% B0)) / n / lbd / hsigma
+    #   B0 <- B0 / rep(weights,table(group))
+    #   return(c(B0, S0, hsigma))
+    # }
   }
 
   if (parallel == FALSE) {
@@ -338,8 +354,6 @@ PBsamplerMain <- function(X, PE, sig2, lbd, weights,
 #' n <- 40
 #' p <- 50
 #' Niter <-  10
-#' Group <- rep(1:(p/10), each = 10)
-#' Weights <- rep(1, p/10)
 #' X <- matrix(rnorm(n*p), n)
 #' object <- PBsampler(X = X, PE_1 = c(1,1,rep(0,p-2)), sig2_1 = 1, lbd_1 = .5,
 #' niter = 100, type = "lasso")
@@ -362,6 +376,7 @@ PB.CI <- function(object, alpha = .05, method = "debias", parallel=FALSE, ncores
   weights <- object$weights
   lbd <- object$lbd
   group <- object$group
+  type <- object$type
 
   if (!method %in% c("none", "debias")) {
     stop("method should be either \"default\" or \"debias\".")
@@ -371,7 +386,6 @@ PB.CI <- function(object, alpha = .05, method = "debias", parallel=FALSE, ncores
   } else { # debiased estimator
     B <- object$beta # niter x p matrix
     S <- object$subgrad # niter x p matrix
-    refitB <- matrix(0,nrow(B),ncol(B))
     W <- rep(weights, table(group))
 
     refitY <- solve(X%*%t(X))%*%X %*% (crossprod(X) %*% t(B) / n +
@@ -382,20 +396,50 @@ PB.CI <- function(object, alpha = .05, method = "debias", parallel=FALSE, ncores
                               ncores = ncores, return.Z = TRUE)
     Z <- hdiFit$Z
 
-    ZrefitY <- crossprod(Z, refitY) # p x niter
-    ZX <- colSums(Z * X) # length p
-    ZXcomp <- matrix(0,p-1,p)
-    for (i in 1:p) {
-      ZXcomp[,i] <- crossprod(Z[,i], X[, -i])
+    if (type %in% c("lasso", "slasso")) {
+      ZrefitY <- crossprod(Z, refitY) # p x niter
+      ZX <- colSums(Z * X) # length p
+      ZXcomp <- matrix(0,p-1,p)
+      for (i in 1:p) {
+        ZXcomp[,i] <- crossprod(Z[,i], X[, -i])
+      }
+    } else {
+      J <- max(group)
+      inv.ZX.X <- vector("list", J) # each with size n x p_j
+      for (i in 1:J) {
+        inv.ZX.X[[i]] <- Z[, group==i] %*% MASS::ginv(t(Z[,group==i])%*%X[,group==i])
+      }
+
+      tinv.ZX.X.refitY <- vector("list", J) # each with size p_j x niter
+      for (i in 1:J) {
+        tinv.ZX.X.refitY[[i]] <- crossprod(inv.ZX.X[[i]], refitY)
+      }
+
+      ZXcomp.group <- vector("list", J) # each w/ size p_j x (n - p_j)
+      for (i in 1:J) {
+        ZXcomp.group[[i]] <- crossprod(inv.ZX.X[[i]], X[, group!=i])
+      }
+
+      ZXcomp.B <- vector("list", J) # each w/ size p_j x niter
+      for (i in 1:J) {
+        ZXcomp.B[[i]] <- tcrossprod(ZXcomp.group[[i]], B[, group!=i])
+      }
     }
 
     refitB <- matrix(0,nrow(B),ncol(B))
 
     # eq(4) from Zhang & Zhang(2014)
     FF <- function(x) {
-      TEMP <- c()
-      for (j in 1:ncol(B)) {
-        TEMP[j] <- (ZrefitY[j,x] - ZXcomp[,j] %*% B[x,-j]) / ZX[j]
+      if (type %in% c("lasso", "slasso")) {
+        TEMP <- c()
+        for (j in 1:ncol(B)) {
+          TEMP[j] <- (ZrefitY[j,x] - ZXcomp[,j] %*% B[x,-j]) / ZX[j]
+        }
+      } else { # eq (2.12) from Mitra & Zhang(2016) with little modification
+        TEMP <- c()
+        for (j in 1:J) {
+          TEMP[group==j] <- tinv.ZX.X.refitY[[j]][,x] - ZXcomp.B[[j]][,x]
+        }
       }
       return(TEMP)
     }
