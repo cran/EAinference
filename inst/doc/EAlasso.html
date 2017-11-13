@@ -209,9 +209,10 @@ The package includes</p>
 
 <ul>
 <li>Fitting the lasso, group lasso, scaleld lasso and scaled group lasso models</li>
-<li>Gaussian bootstrap and wild multiplier bootstrap sampler</li>
-<li>Importance sampler</li>
-<li>Metropolis-Hastings lasso sampler with applications in post-selection inference.</li>
+<li>Gaussian and wild multiplier bootstrap for lasso, group lasso, scaled lasso, scaled group
+lasso and their de-biased estimators</li>
+<li>Importance sampler for approximating p-values in these methods</li>
+<li>Markov chain Monte Carlo lasso sampler with applications in post-selection inference.</li>
 </ul>
 
 <h2>Loss functions</h2>
@@ -709,9 +710,9 @@ output is the \((1-a)\) quantile of each active coefficient. </p>
  parallel = !(.Platform$OS.type == &quot;windows&quot;))
 </code></pre>
 
-<pre><code>##                beta1     beta4      beta8     beta10
-## LowerBound 0.1667292 0.2138517 -0.5263280 -0.4057291
-## UpperBound 1.6658904 1.8746789  0.7428508  2.3348934
+<pre><code>##                 beta1    beta4      beta8    beta10
+## LowerBound -0.2658251 0.134997 -1.3885134 0.3228851
+## UpperBound  2.6078838 2.031834  0.8035686 2.4225887
 </code></pre>
 
 </body>
