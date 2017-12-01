@@ -10,7 +10,7 @@
 #' squared error or that is within 1 std error bound.
 #' @param weights weight vector with length equal to the number of coefficients.
 #' Default is \code{rep(1, ncol(X))}.
-#' @param tau numeric vector. Standard deviaion of proposal distribution
+#' @param tau numeric vector. Standard deviation of proposal distribution
 #'  for each beta. Adjust the value to get relevant level of acceptance rate.
 #'  Default is \code{rep(1, ncol(X))}.
 #' @param sig2.hat variance of error term.
@@ -94,6 +94,10 @@ postInference.MHLS <- function(X, Y, lbd, weights = rep(1, ncol(X)),
     stop("Invalide method type.")
   }
 
+  if (length(tau) != p) {
+    stop("length(tau) has to be the same with col(X)")
+  }
+
   if (nrow(X) != nrow(Y)) {
     stop("The dimension of X and Y are not conformable.")
   }
@@ -132,10 +136,14 @@ postInference.MHLS <- function(X, Y, lbd, weights = rep(1, ncol(X)),
   if (method == "coeff") {
     Plugin.seq <- Pluginbeta.MHLS(X = X, Y = Y, A = A, nPlugin = nChain,
                                   sigma.hat = sqrt(sig2.hat))
+    betaCenter <- beta.refit
   } else {
-    Plugin.seq <- PluginMu.MHLS(X = X, Y = Y, lbd = lbd,
-      ratioSeq = seq(0,1,by=0.01), alpha = 0.05, nChain = nChain, niter = 100,
-      parallel = parallel, ncores = ncores)
+    Plugin.seq <- PluginMu.MHLS(X = X, Y = Y, lbd = lbd, sigma.hat = sqrt(sig2.hat),
+      # ratioSeq = seq(0,1,by=0.01), alpha = 0.05, nChain = nChain, niter = 100,
+      alpha = 0.05, nChain = nChain, niter = 100,
+      method = "boundary", parallel = parallel, ncores = ncores)
+    betaCenter <- rep(0,p)
+    betaCenter[A] <- solve(crossprod(X[,A]))%*%t(X[,A])%*% Plugin.seq[nChain+1, ]
   }
 
   FF <- function(x) {
@@ -166,10 +174,10 @@ postInference.MHLS <- function(X, Y, lbd, weights = rep(1, ncol(X)),
   RefitBeta <- Refit.MHLS(X,weights,lbd,MCSAMPLE)
   if (returnSamples) {
     return(list(MHsamples = TEMP, pluginValue = Plugin.seq, method = method,
-            confidenceInterval = CI.MHLS(betaRefitMH = RefitBeta,
+            confidenceInterval = CI.MHLS(betaRefitMH = RefitBeta, betaCenter = betaCenter,
                                          betaRefit = beta.refit, alpha = alpha)))
   } else {
     return(CI.MHLS(betaRefitMH = RefitBeta, betaRefit = beta.refit,
-                   alpha = alpha))
+                   betaCenter = betaCenter, alpha = alpha))
   }
 }
